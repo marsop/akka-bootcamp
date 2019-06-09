@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using Akka.Actor;
 using Akka.Routing;
+using Akka.Routing;
 using Octokit;
 
 namespace GithubActors.Actors
@@ -79,7 +80,9 @@ namespace GithubActors.Actors
 
         protected override void PreStart()
         {
-            _githubWorker = Context.ActorOf(Props.Create(() => new GithubWorkerActor(GithubClientFactory.GetClient)));
+            _githubWorker = Context
+                .ActorOf(Props.Create(() => new GithubWorkerActor(GithubClientFactory.GetClient))
+                .WithRouter(new RoundRobinPool(50)));
         }
 
         private void Waiting()
@@ -89,8 +92,8 @@ namespace GithubActors.Actors
             {
                 BecomeWorking(job.Repo);
 
-                //kick off the job to query the repo's list of starrers
-                _githubWorker.Tell(new RetryableQuery(new GithubWorkerActor.QueryStarrers(job.Repo), 4));
+            //kick off the job to query the repo's list of starrers
+            _githubWorker.Tell(new RetryableQuery(new GithubWorkerActor.QueryStarrers(job.Repo), 4));
             });
         }
 
@@ -125,21 +128,21 @@ namespace GithubActors.Actors
                         _similarRepos[repo.HtmlUrl] = new SimilarRepo(repo);
                     }
 
-                    //increment the number of people who starred this repo
-                    _similarRepos[repo.HtmlUrl].SharedStarrers++;
+                //increment the number of people who starred this repo
+                _similarRepos[repo.HtmlUrl].SharedStarrers++;
                 }
             });
 
             Receive<PublishUpdate>(update =>
             {
-                //check to see if the job is done
-                if (_receivedInitialUsers && _githubProgressStats.IsFinished)
+            //check to see if the job is done
+            if (_receivedInitialUsers && _githubProgressStats.IsFinished)
                 {
                     _githubProgressStats = _githubProgressStats.Finish();
 
-                    //all repos minus forks of the current one
-                    var sortedSimilarRepos = _similarRepos.Values
-                        .Where(x => x.Repo.Name != _currentRepo.Repo).OrderByDescending(x => x.SharedStarrers).ToList();
+                //all repos minus forks of the current one
+                var sortedSimilarRepos = _similarRepos.Values
+                .Where(x => x.Repo.Name != _currentRepo.Repo).OrderByDescending(x => x.SharedStarrers).ToList();
                     foreach (var subscriber in _subscribers)
                     {
                         subscriber.Tell(sortedSimilarRepos);
@@ -159,8 +162,8 @@ namespace GithubActors.Actors
                 _receivedInitialUsers = true;
                 _githubProgressStats = _githubProgressStats.SetExpectedUserCount(users.Length);
 
-                //queue up all of the jobs
-                foreach (var user in users)
+            //queue up all of the jobs
+            foreach (var user in users)
                     _githubWorker.Tell(new RetryableQuery(new GithubWorkerActor.QueryStarrer(user.Login), 3));
             });
 
@@ -168,8 +171,8 @@ namespace GithubActors.Actors
 
             Receive<SubscribeToProgressUpdates>(updates =>
             {
-                //this is our first subscriber, which means we need to turn publishing on
-                if (_subscribers.Count == 0)
+            //this is our first subscriber, which means we need to turn publishing on
+            if (_subscribers.Count == 0)
                 {
                     Context.System.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(100),
                         Self, PublishUpdate.Instance, Self, _publishTimer);
